@@ -34,6 +34,7 @@ import {
   ExecResults,
 } from "../../api";
 import { Answer } from "../../components/Answer";
+import { FixedPromptButton } from '../../components/common/Button';
 import { QuestionInput } from "../../components/QuestionInput";
 import { ChatHistoryPanel } from "../../components/ChatHistory/ChatHistoryPanel";
 import { AppStateContext } from "../../state/AppProvider";
@@ -104,6 +105,15 @@ const Chat = () => {
     setTimeout(() => {
       setErrorMsg(null)
     }, 500)
+  }
+
+  const sendFixedPrompt = () => {
+    const conversationId = appStateContext?.state.currentChat?.id ? appStateContext?.state.currentChat?.id : undefined
+    const question="היי, תוכל ללמד אותי כיצד להתמודד עם מניפולציות רגשיות בזוגיות?"
+        
+    appStateContext?.state.isCosmosDBAvailable?.cosmosDB
+      ? makeApiRequestWithCosmosDB(question, conversationId)
+      : makeApiRequestWithoutCosmosDB(question, conversationId)
   }
 
   useEffect(() => {
@@ -836,7 +846,7 @@ const Chat = () => {
                     <div className={styles.chatMessageGpt}>
                       <Answer
                         answer={{
-                          answer: "Generating answer...",
+                          answer: "חושב...",
                           citations: [],
                           generated_chart: null
                         }}
@@ -848,6 +858,12 @@ const Chat = () => {
                 )}
                 <div ref={chatMessageStreamEnd} />
               </div>
+            )}
+
+            {(!messages || messages.length < 1) && (
+              <Stack className={styles.chatEmptyStateFixedPrompt}>
+                <FixedPromptButton onClick={sendFixedPrompt} text={"היי, תוכל ללמד אותי כיצד להתמודד עם מניפולציות רגשיות בזוגיות?"} />
+              </Stack>
             )}
 
             <Stack horizontal className={styles.chatInput}>

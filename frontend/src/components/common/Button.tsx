@@ -18,6 +18,16 @@ export const ShareButton: React.FC<ButtonProps> = ({ onClick, text }) => {
   )
 }
 
+export const FixedPromptButton: React.FC<ButtonProps> = ({ onClick, text }) => {
+  return (
+    <CommandBarButton
+      className={styles.fixedPromptButtonRoot}
+      onClick={onClick}
+      text={text}
+    />
+  )
+}
+
 export const HistoryButton: React.FC<ButtonProps> = ({ onClick, text }) => {
   return (
     <DefaultButton
