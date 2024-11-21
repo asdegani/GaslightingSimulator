@@ -862,7 +862,8 @@ const Chat = () => {
 
             {(!messages || messages.length < 1) && (
               <Stack className={styles.chatEmptyStateFixedPrompt}>
-                <FixedPromptButton onClick={sendFixedPrompt} text={"היי, תוכל ללמד אותי כיצד להתמודד עם מניפולציות רגשיות בזוגיות?"} />
+                <FixedPromptButton onClick={sendFixedPrompt} text={"בואו נתחיל 👆"} />
+                
               </Stack>
             )}
 
