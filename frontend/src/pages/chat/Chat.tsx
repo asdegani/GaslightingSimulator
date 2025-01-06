@@ -34,7 +34,7 @@ import {
   ExecResults,
 } from "../../api";
 import { Answer } from "../../components/Answer";
-import { FixedPromptButton } from '../../components/common/Button';
+import { FixedPromptButton, WizardButton, ButtonProps, WizardProps } from '../../components/common/Button';
 import { QuestionInput } from "../../components/QuestionInput";
 import { ChatHistoryPanel } from "../../components/ChatHistory/ChatHistoryPanel";
 import { AppStateContext } from "../../state/AppProvider";
@@ -52,6 +52,7 @@ const Chat = () => {
   const AUTH_ENABLED = appStateContext?.state.frontendSettings?.auth_enabled
   const chatMessageStreamEnd = useRef<HTMLDivElement | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(false)
+  const [isStopped, setIsStopped] = useState<boolean>(false)
   const [showLoadingMessage, setShowLoadingMessage] = useState<boolean>(false)
   const [activeCitation, setActiveCitation] = useState<Citation>()
   const [isCitationPanelOpen, setIsCitationPanelOpen] = useState<boolean>(false)
@@ -59,6 +60,7 @@ const Chat = () => {
   const abortFuncs = useRef([] as AbortController[])
   const [showAuthMessage, setShowAuthMessage] = useState<boolean | undefined>()
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [wizardbuttons, setWizardbuttons] = useState<WizardProps[]>([])
   const [execResults, setExecResults] = useState<ExecResults[]>([])
   const [processMessages, setProcessMessages] = useState<messageStatus>(messageStatus.NotRunning)
   const [clearingChat, setClearingChat] = useState<boolean>(false)
@@ -67,6 +69,20 @@ const Chat = () => {
   const [logo, setLogo] = useState('')
   const [answerId, setAnswerId] = useState<string>('')
 
+  // Dummy state to trigger re-render
+  const [dummyState, setDummyState] = useState<boolean>(false);
+  const triggerRerender = async () => {
+    setDummyState(!dummyState);
+  };
+
+  const wizardQuestions = [
+    "האם את מעל גיל 18?",
+    "האם את מאשרת את תנאי השימוש?",
+    "האם את מאשרת שהבנת כי השימוש בגזלייטר יכול להיות מציף רגשית, ואינו מומלץ למי שנמצאת במצב בו תרגול כזה עלול לערער?",
+    "האם את מאשרת כי השימוש בגזלייטר הוא על אחריותך בלבד?",
+    "האם את מתחייבת לא להשתמש בכלי לשימוש שאינו מופיע בהוראות?",
+    "האם תרצי להמשיך ולהתחיל שיחה?"
+  ];
   const errorDialogContentProps = {
     type: DialogType.close,
     title: errorMsg?.title,
@@ -107,13 +123,96 @@ const Chat = () => {
     }, 500)
   }
 
-  const sendFixedPrompt = () => {
+  const sendWizardPrompt = (questionIndex: number, currentChat: Conversation | null | undefined, conversationId?: string, userInput: string = "כן") => {
+    const question=wizardQuestions[questionIndex];
+        
+    appStateContext?.state.isCosmosDBAvailable?.cosmosDB
+      ? makeApiRequestWithCosmosDB(question, conversationId)
+      : makeWizardRequest(questionIndex, userInput, currentChat, conversationId)
+  }
+
+  const stopChat = async() => {
+    const abortController = new AbortController()
+    abortFuncs.current.unshift(abortController)
+    console.log('messages count:', messages.length)
+    setWizardbuttons([])
+
+    const userMessage: ChatMessage = {
+      id: uuid(),
+      role: 'user',
+      content: "לא",
+      date: new Date().toISOString()
+    }
+
     const conversationId = appStateContext?.state.currentChat?.id ? appStateContext?.state.currentChat?.id : undefined
+    let conversation: Conversation | null | undefined
+    if (!conversationId) {
+      console.log('No conversation ID found.')
+      conversation = {
+        id: conversationId ?? uuid(),
+        title: "לא",
+        messages: [userMessage],
+        date: new Date().toISOString()
+      }
+    } else {
+      console.log('Conversation ID found.')
+      conversation = appStateContext?.state?.currentChat
+      if (!conversation) {
+        console.error('Conversation not found.')
+        setIsLoading(false)
+        setShowLoadingMessage(false)
+        return
+      } else {
+        conversation.messages.push(userMessage)
+      }
+    }
+    console.log('messages count2:', messages.length)
+    console.log('conversation:', conversation)
+
+    appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation })
+    setMessages(conversation.messages)
+    await triggerRerender();
+    setProcessMessages(messageStatus.Processing)
+    await triggerRerender();
+    console.log('makeWizardRequest Processing messages count:', messages.length)
+    
+    setShowLoadingMessage(false)
+    const resultObjs: ChatMessage[] = [{
+      id: uuid(),
+      role: ASSISTANT,
+      content: "את מוזמנת לסגור את החלון הזה ולקרוא את השיחה לדוגמה בדף הראשי",
+      date: new Date().toISOString()
+    }]
+    
+    resultObjs.forEach(resultObj => {
+      processSingleResultMessage(resultObj, userMessage, conversationId)
+    })
+
+    conversation.messages.push(assistantMessage)
+    appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation })
+    setMessages([...messages, assistantMessage])
+
+    console.log('makeWizardRequest finally messages count:', messages.length)
+    
+    setIsLoading(false)
+    setShowLoadingMessage(false)
+    abortFuncs.current = abortFuncs.current.filter(a => a !== abortController)
+    setProcessMessages(messageStatus.Done)
+    setIsStopped(true)
+    return abortController.abort()    
+  }
+
+  const sendFixedPrompt = (conversationId?: string, currentChat?: Conversation | null | undefined) => {
+    setWizardbuttons([])
+
+    ///const conversationId = appStateContext?.state.currentChat?.id ? appStateContext?.state.currentChat?.id : undefined
     const question="היי, תוכל ללמד אותי כיצד להתמודד עם מניפולציות רגשיות בזוגיות?"
         
     appStateContext?.state.isCosmosDBAvailable?.cosmosDB
       ? makeApiRequestWithCosmosDB(question, conversationId)
-      : makeApiRequestWithoutCosmosDB(question, conversationId)
+      : makeApiRequestWithoutCosmosDB(question, conversationId, currentChat)
+
+    console.log('sendFixedPrompt messages count:', messages.length)
   }
 
   useEffect(() => {
@@ -142,6 +241,7 @@ const Chat = () => {
   let assistantMessage = {} as ChatMessage
   let toolMessage = {} as ChatMessage
   let assistantContent = ''
+  console.log('Rendering chat')
 
   useEffect(() => parseExecResults(execResults), [execResults])
 
@@ -151,7 +251,39 @@ const Chat = () => {
     appStateContext?.dispatch({ type: 'SET_ANSWER_EXEC_RESULT', payload: { answerId: answerId, exec_result: exec_results } })
   }
 
+  const processSingleResultMessage = (resultMessage: ChatMessage, userMessage: ChatMessage, conversationId?: string) => {
+    console.log('processSingleResultMessage assistantContent: ', assistantContent)
+
+    if (resultMessage.role === ASSISTANT) {
+      setAnswerId(resultMessage.id)
+      assistantContent = ''
+      assistantContent += resultMessage.content
+      assistantMessage = { ...assistantMessage, ...resultMessage }
+      assistantMessage.content = assistantContent
+
+      if (resultMessage.context) {
+        toolMessage = {
+          id: uuid(),
+          role: TOOL,
+          content: resultMessage.context,
+          date: new Date().toISOString()
+        }
+      }
+    }
+
+    if (!conversationId) {
+      isEmpty(toolMessage)
+        ? setMessages([...messages, userMessage, assistantMessage])
+        : setMessages([...messages, userMessage, toolMessage, assistantMessage])
+    } else {
+      isEmpty(toolMessage)
+        ? setMessages([...messages, assistantMessage])
+        : setMessages([...messages, toolMessage, assistantMessage])
+    }
+  }
+
   const processResultMessage = (resultMessage: ChatMessage, userMessage: ChatMessage, conversationId?: string) => {
+    console.log('processResultMessage assistantContent: ', assistantContent)
     if (typeof resultMessage.content === "string" && resultMessage.content.includes('all_exec_results')) {
       const parsedExecResults = JSON.parse(resultMessage.content) as AzureSqlServerExecResults
       setExecResults(parsedExecResults.all_exec_results)
@@ -189,7 +321,97 @@ const Chat = () => {
     }
   }
 
-  const makeApiRequestWithoutCosmosDB = async (question: ChatMessage["content"], conversationId?: string) => {
+  const makeWizardRequest = async (questionIndex: number, userInput: string, currentChat: Conversation | null | undefined, conversationId?: string) => {
+    console.log('makeWizardRequest start messages count:', messages.length)
+    setIsLoading(true)
+    setShowLoadingMessage(true)
+    setWizardbuttons([])
+    const abortController = new AbortController()
+    abortFuncs.current.unshift(abortController)
+
+    const userMessage: ChatMessage = {
+      id: uuid(),
+      role: 'user',
+      content: userInput as string,
+      date: new Date().toISOString()
+    }
+
+    let conversation: Conversation | null | undefined
+    if (!conversationId) {
+      conversation = {
+        id: conversationId ?? uuid(),
+        title: "גזלייטר",
+        messages: [userMessage],
+        date: new Date().toISOString()
+      }
+    } else {
+      conversation = appStateContext?.state?.currentChat ?? currentChat
+      if (!conversation) {
+        console.error('Conversation not found.')
+        setIsLoading(false)
+        setShowLoadingMessage(false)
+        abortFuncs.current = abortFuncs.current.filter(a => a !== abortController)
+        return
+      } else {
+        conversation.messages.push(userMessage)
+      }
+    }
+
+    console.log('makeWizardRequest conversation:', conversation.messages.map(m => m.content))
+    appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation })
+    setMessages(conversation.messages)
+    await triggerRerender();
+    setProcessMessages(messageStatus.Processing)
+    await triggerRerender();
+    console.log('makeWizardRequest Processing messages count:', messages.length)
+    
+    setShowLoadingMessage(false)
+    const resultObjs: ChatMessage[] = [{
+      id: uuid(),
+      role: ASSISTANT,
+      content: wizardQuestions[questionIndex],
+      date: new Date().toISOString()
+    }]
+    
+    resultObjs.forEach(resultObj => {
+      processSingleResultMessage(resultObj, userMessage, conversationId)
+    })
+
+    conversation.messages.push(assistantMessage)
+    appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation })
+    setMessages([...messages, assistantMessage])
+
+    console.log('makeWizardRequest finally messages count:', messages.length)
+    
+    setIsLoading(false)
+    setShowLoadingMessage(false)
+    abortFuncs.current = abortFuncs.current.filter(a => a !== abortController)
+    setProcessMessages(messageStatus.Done)
+
+    const noButton: WizardProps = {
+      text: "לא",
+      onSend123: (_?: string) => stopChat(),
+      currentChat: conversation
+    }
+    const yesButton: WizardProps =
+      questionIndex < wizardQuestions.length - 1 ?
+      {
+        text: "כן",
+        onSend123: (id?: string, currentChat?: Conversation | null | undefined) => sendWizardPrompt(questionIndex + 1, currentChat, id),
+        currentChat: conversation
+      } :
+      {
+        text: "כן",
+        onSend123: (conversationId?: string, currentChat?: Conversation | null | undefined) => sendFixedPrompt(conversationId, currentChat),
+        currentChat: conversation
+      }
+    setWizardbuttons([noButton, yesButton])
+
+    return abortController.abort()
+  }
+
+  const makeApiRequestWithoutCosmosDB = async (question: ChatMessage["content"], conversationId?: string, currentChat?: Conversation | null | undefined) => {
+    console.log('makeApiRequestWithoutCosmosDB start messages count:', messages.length)
     setIsLoading(true)
     setShowLoadingMessage(true)
     const abortController = new AbortController()
@@ -214,7 +436,7 @@ const Chat = () => {
         date: new Date().toISOString()
       }
     } else {
-      conversation = appStateContext?.state?.currentChat
+      conversation = appStateContext?.state?.currentChat ?? currentChat
       if (!conversation) {
         console.error('Conversation not found.')
         setIsLoading(false)
@@ -226,6 +448,7 @@ const Chat = () => {
       }
     }
 
+    console.log('makeApiRequestWithoutCosmosDB conversation:', conversation.messages.map(m => m.content))
     appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation })
     setMessages(conversation.messages)
 
@@ -242,6 +465,7 @@ const Chat = () => {
         let runningText = ''
         while (true) {
           setProcessMessages(messageStatus.Processing)
+          console.log('makeApiRequestWithoutCosmosDB Processing messages count:', messages.length)
           const { done, value } = await reader.read()
           if (done) break
 
@@ -307,6 +531,7 @@ const Chat = () => {
         setMessages([...messages, userMessage])
       }
     } finally {
+      console.log('makeApiRequestWithoutCosmosDB finally messages count:', messages.length)
       setIsLoading(false)
       setShowLoadingMessage(false)
       abortFuncs.current = abortFuncs.current.filter(a => a !== abortController)
@@ -862,8 +1087,23 @@ const Chat = () => {
 
             {(!messages || messages.length < 1) && (
               <Stack className={styles.chatEmptyStateFixedPrompt}>
-                <FixedPromptButton onClick={sendFixedPrompt} text={"בואו נתחיל 👆"} />
-                
+                <WizardButton
+                  onSend123={() => sendWizardPrompt(0, undefined, undefined, "בואו נתחיל 👆")}
+                  text={"בואו נתחיל 👆"}
+                  currentChat={undefined}
+                  />
+              </Stack>
+            )}
+            {(wizardbuttons) && (
+              <Stack horizontal={true} className={styles.chatEmptyStateWizardButtons}>
+                {wizardbuttons.map(buttonProps => (
+                  <WizardButton
+                    onSend123={buttonProps.onSend123}
+                    text={buttonProps.text}
+                    conversationId={appStateContext?.state.currentChat?.id ? appStateContext?.state.currentChat?.id : undefined}
+                    currentChat={appStateContext?.state.currentChat}
+                    />
+                ))}
               </Stack>
             )}
 
@@ -910,38 +1150,6 @@ const Chat = () => {
                     aria-label="start a new chat button"
                   />
                 )}
-                <CommandBarButton
-                  role="button"
-                  styles={{
-                    icon: {
-                      color: '#FFFFFF'
-                    },
-                    iconDisabled: {
-                      color: '#BDBDBD !important'
-                    },
-                    root: {
-                      color: '#FFFFFF',
-                      background:
-                        'radial-gradient(109.81% 107.82% at 100.1% 90.19%, #0F6CBD 33.63%, #2D87C3 70.31%, #8DDDD8 100%)'
-                    },
-                    rootDisabled: {
-                      background: '#F0F0F0'
-                    }
-                  }}
-                  className={
-                    appStateContext?.state.isCosmosDBAvailable?.status !== CosmosDBStatus.NotConfigured
-                      ? styles.clearChatBroom
-                      : styles.clearChatBroomNoCosmos
-                  }
-                  iconProps={{ iconName: 'Broom' }}
-                  onClick={
-                    appStateContext?.state.isCosmosDBAvailable?.status !== CosmosDBStatus.NotConfigured
-                      ? clearChat
-                      : newChat
-                  }
-                  disabled={disabledButton()}
-                  aria-label="clear chat button"
-                />
                 <Dialog
                   hidden={hideErrorDialog}
                   onDismiss={handleErrorDialogClose}
@@ -951,11 +1159,12 @@ const Chat = () => {
               <QuestionInput
                 clearOnSend
                 placeholder="ממתין לתשובה..."
-                disabled={isLoading}
+                disabled={isLoading || isStopped}
                 onSend={(question, id) => {
                   appStateContext?.state.isCosmosDBAvailable?.cosmosDB
                     ? makeApiRequestWithCosmosDB(question, id)
                     : makeApiRequestWithoutCosmosDB(question, id)
+                  console.log('onSend messages count:', messages.length)
                 }}
                 conversationId={
                   appStateContext?.state.currentChat?.id ? appStateContext?.state.currentChat?.id : undefined

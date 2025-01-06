@@ -37,6 +37,13 @@
   align-items: center;
 }
 
+.chatEmptyStateWizardButtons {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+}
+
 .chatEmptyStateFixedPrompt {
   display: flex;
   flex-direction: column;
