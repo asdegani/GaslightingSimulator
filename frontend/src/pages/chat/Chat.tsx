@@ -204,7 +204,8 @@ const Chat = () => {
 
   const sendFixedPrompt = (conversationId?: string, currentChat?: Conversation | null | undefined) => {
     setWizardbuttons([])
-
+    assistantContent = ''
+    
     ///const conversationId = appStateContext?.state.currentChat?.id ? appStateContext?.state.currentChat?.id : undefined
     const question="היי, תוכל ללמד אותי כיצד להתמודד עם מניפולציות רגשיות בזוגיות?"
         
@@ -402,7 +403,10 @@ const Chat = () => {
       } :
       {
         text: "כן",
-        onSend123: (conversationId?: string, currentChat?: Conversation | null | undefined) => sendFixedPrompt(conversationId, currentChat),
+        onSend123: (conversationId?: string, currentChat?: Conversation | null | undefined) => {
+          const newChat = currentChat ? { ... currentChat, messages: [] } : undefined
+          sendFixedPrompt(conversationId, newChat)
+        },
         currentChat: conversation
       }
     setWizardbuttons([noButton, yesButton])

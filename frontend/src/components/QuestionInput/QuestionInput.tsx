@@ -63,6 +63,7 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
         value={question}
         onChange={onQuestionChange}
         onKeyDown={onEnterPress}
+        disabled={disabled}
       />
       <div
         className={styles.questionInputSendButtonContainer}
